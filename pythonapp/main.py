@@ -5,6 +5,10 @@ import sys
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+import serial.tools
+import serial.tools.list_ports
+import keyboard as keyboardRead # For capturing key presses
+from colorama import Fore, Style
 
 # Set up logging to capture errors
 logging.basicConfig(
@@ -28,7 +32,6 @@ key_map = {
     "bt6": Key.f18,
 }
 
-
 volume_map = [
     -60.00, -54.00, -48.00, -44.00, -42.00, -40.00, -38.00, -36.00, -34.00, -33.00,
     -32.00, -31.00, -30.00, -29.00, -28.00, -27.00, -26.00, -25.00, -24.50, -24.00,
@@ -48,34 +51,72 @@ def setVolume(value):
         if 0 <= index < len(volume_map):  # Validate index range
             volumeValue = volume_map[index]
             volume.SetMasterVolumeLevel(volumeValue,None)
+def get_available_ports():
+    """Get a list of available COM ports."""
+    ports = serial.tools.list_ports.comports()
+    return [port.device for port in ports]
 
-# Set the COM port directly if Arduino is always on COM3
-com_port = 'COM3'
+def select_port(ports):
+    """Interactive menu to select a COM port."""
+    if not ports:
+        print("No COM ports available!")
+        return None
 
-# Try to connect to Arduino on COM3
-try:
-    ser = serial.Serial(com_port, 9600)
-    print(f"Connected to {com_port}")
-    logging.info(f"Connected to {com_port}")
-except Exception as e:
-    print(f"Error: {e}")
-    logging.error(f"Error: {e}")
-    sys.exit(1)
+    index = 0  # Start with the first port
+    while True:
+        # Clear screen
+        print("\033[H\033[J", end="")  # ANSI escape codes to clear the screen
 
-# Main loop to listen for Arduino input
-while True:
+        # Display the menu
+        print(Fore.YELLOW+"Select a COM port (use arrow keys and press Space to select):")
+        print(Style.RESET_ALL)
+        for i, port in enumerate(ports):
+            if i == index:
+                print(f"> {port}  <")  # Highlight the selected port
+            else:
+                print(f"  {port}")
+
+        # Wait for a key press
+        key = keyboardRead.read_event()
+        if key.event_type == "down":
+            if key.name == "down":  # Move down
+                index = (index + 1) % len(ports)
+            elif key.name == "up":  # Move up
+                index = (index - 1) % len(ports)
+            elif key.name == "space":  # Select port
+                return ports[index]
+
+# COM Port selection
+available_ports = get_available_ports()
+selected_port = select_port(available_ports)
+if selected_port:
+    print(f"{Fore.YELLOW}Port selected: {selected_port}")
+    print(Style.RESET_ALL)
+
+# Try to connect to Arduino
     try:
-        if ser.in_waiting > 0:
-            data = ser.readline().decode('utf-8').strip()
-            #buttonPress
-            print("data: ",data)
-            if data in key_map:
-                keyboard.press(key_map[data])
-                keyboard.release(key_map[data])
-            #volume set
-            elif data.startswith("V"):
-                setVolume(int(data[1:]))
+        ser = serial.Serial(selected_port, 9600)
+        print(f"Connected to {selected_port}")
+        logging.info(f"Connected to {selected_port}")
     except Exception as e:
-        print(f"Error in loop: {e}")
-        logging.error(f"Error in loop: {e}")
-        break  # Break if an error occurs
+        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
+        sys.exit(1)
+
+    # Main loop to listen for Arduino input
+    while True:
+        try:
+            if ser.in_waiting > 0:
+                data = ser.readline().decode('utf-8').strip()
+                #buttonPress
+                print("data: ",data)
+                if data in key_map:
+                    keyboard.press(key_map[data])
+                    keyboard.release(key_map[data])
+                #volume set
+                elif data.startswith("V"):
+                    setVolume(int(data[1:]))
+        except Exception as e:
+            print(f"Error in loop: {e}")
+            logging.error(f"Error in loop: {e}")
+            break  # Break if an error occurs
